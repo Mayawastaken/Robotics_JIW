@@ -1,12 +1,3 @@
-"""
-=============================================================================
-Project: Magic Card Robot (JIW)
-Description: A dual-state, gesture-controlled robotic sorting system. 
-Architecture: Finite State Machine (GESTURE -> SORTING -> GESTURE)
-Hardware: Raspberry Pi 4B, 2x Webcams, PCA9685 Servo Driver, N20 DC Motor.
-=============================================================================
-"""
-
 from flask import Flask, Response
 import cv2
 import time
