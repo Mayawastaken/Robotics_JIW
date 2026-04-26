@@ -7,7 +7,7 @@ import numpy as np
 
 app = Flask(__name__)
 
-# --- ROI SETTINGS ---
+# ROI
 x = 274
 y = 248
 w = 218
@@ -16,7 +16,6 @@ h = 89
 FINAL_SIZE = 160
 PAD = 8
 
-# --- 1. LOAD THE DICTIONARY ON STARTUP ---
 templates = {}
 print("Loading dictionary...")
 files = glob.glob("processed/*.jpg") + glob.glob("processed/*.png")
@@ -32,7 +31,6 @@ if not templates:
     print("ERROR: No templates found! Run your preprocess script first.")
     exit()
 
-# --- 2. PREPROCESSING FUNCTION ---
 def preprocess_live_roi(cropped_bgr):
     gray = cv2.cvtColor(cropped_bgr, cv2.COLOR_BGR2GRAY)
     blur = cv2.GaussianBlur(gray, (3, 3), 0)
@@ -70,7 +68,6 @@ def preprocess_live_roi(cropped_bgr):
     
     return canvas
 
-# --- 3. THE FLASK CAMERA LOOP ---
 print("Warming up camera...")
 cap = cv2.VideoCapture(0)
 time.sleep(2)
@@ -81,14 +78,13 @@ def generate_frames():
         if not success:
             break
 
-        # 1. Grab the ROI and process it
         roi = frame[y:y+h, x:x+w]
         live_canvas = preprocess_live_roi(roi)
 
         best_score = -1.0
         best_match = "Scanning..."
 
-        # 2. Check for a match
+        # checks for match
         if live_canvas is not None:
             for name, template_img in templates.items():
                 res = cv2.matchTemplate(live_canvas, template_img, cv2.TM_CCOEFF_NORMED)
@@ -97,10 +93,9 @@ def generate_frames():
                     best_score = score
                     best_match = name
 
-        # 3. Draw the visuals on the frame
         cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
 
-        # THE BUFFER: Only show the text if confidence is above 0.75
+        # .75 was empirically good
         if best_score > 0.75:
             display_text = f"{best_match.upper()} ({int(best_score*100)}%)"
             # Draw a black background box for the text so it's easy to read
@@ -108,7 +103,6 @@ def generate_frames():
             # Draw the bright green text
             cv2.putText(frame, display_text, (x+5, y-8), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
-        # 4. Blast it to the browser
         ret, buffer = cv2.imencode('.jpg', frame)
         final_frame = buffer.tobytes()
 
