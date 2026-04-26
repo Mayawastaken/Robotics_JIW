@@ -32,13 +32,13 @@ MOTOR_IN2 = 6
 MOTOR_SPEED = 70 
 
 # I2C PCA9685 servo assignments
-servo_1_port = 0  # THE SORTER FLAP: routes target vs. non target cards
-servo_2_port = 1  # THE DISPENSER KICKER: maintains dispensing rhythm
+servo_1_port = 0 # THE SORTER FLAP: routes target vs. non target cards
+servo_2_port = 1 # THE DISPENSER KICKER: maintains dispensing rhythm
 
 # absolute angles mapped to the given servo's teeth angles
 SERVO_1_CENTER = 99
-SERVO_1_STATE_A = 70   # (-29 deg from center)
-SERVO_1_STATE_B = 126  # (+27 deg from center)
+SERVO_1_STATE_A = 70 # (-29 deg from center)
+SERVO_1_STATE_B = 126 # (+27 deg from center)
 
 SERVO_2_CENTER = 90
 SERVO_2_RIGHT = 5       
@@ -69,7 +69,7 @@ move_servo_to(servo_2_port, SERVO_2_CENTER)
 
 
 system_state = "GESTURE" # FSM state tracking
-selected_cards = []      # Target List, e.g. [('A', 'HEARTS')]
+selected_cards = [] # Target List, e.g. [('A', 'HEARTS')]
 
 # camera 0 data (gesture model + hand connections)
 HAND_CONNECTIONS = [(0, 1), (1, 2), (2, 3), (3, 4), (0, 5), (5, 6), (6, 7), (7, 8), (0, 9), (9, 10), (10, 11), (11, 12), (0, 13), (13, 14), (14, 15), (15, 16), (0, 17), (17, 18), (18, 19), (19, 20), (5, 9), (9, 13), (13, 17)]
@@ -289,7 +289,7 @@ def generate_frames():
                     dispenser_state = "PUSHING"
                     last_dispense_action = current_time
 
-                # 2. asynch sorter flap reset (servo 1) after 1.5 sec
+                # asynch sorter flap reset (servo 1) after 1.5 sec
                 if sorter_active and (current_time - sorter_reset_time > 1.5):
                     move_servo_to(servo_1_port, SERVO_1_STATE_B)
                     sorter_active = False
@@ -298,7 +298,7 @@ def generate_frames():
                 for k in stale_keys:
                     del accepted_history[k]
 
-                # 4. CV target matching
+                # CV target matching
                 roi = frame[cam1_y:cam1_y+cam1_h, cam1_x:cam1_x+cam1_w]
                 live_canvas = preprocess_live_roi(roi)
                 cv2.rectangle(frame, (cam1_x, cam1_y), (cam1_x+cam1_w, cam1_y+cam1_h), (0, 255, 0), 2)
