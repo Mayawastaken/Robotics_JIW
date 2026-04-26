@@ -15,40 +15,35 @@ from adafruit_pca9685 import PCA9685
 
 app = Flask(__name__)
 
-# ==========================================
-# 0. ROBUST PATH HANDLING
-# ==========================================
-# Dynamically anchors paths to the project root so the script can be 
-# reliably executed from any working directory or systemd service.
+
+# dynamic path handling
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 MODEL_PATH = os.path.join(PROJECT_ROOT, "models", "hand_landmarker.task")
 VISION_DIR = os.path.join(PROJECT_ROOT, "vision", "processed")
 
-# ==========================================
-# 1. HARDWARE SETTINGS & INITIALIZATION
-# ==========================================
+# hardware settings + initialization
 SERVO_MIN = 150
 SERVO_MAX = 600
 SERVO_FREQ = 50
 
-# DC Gear Motor (Friction rollers)
+# DC gear motor 
 MOTOR_IN1 = 5
 MOTOR_IN2 = 6
 MOTOR_SPEED = 70 
 
-# I2C PCA9685 Servo Assignments
-servo_1_port = 0  # THE SORTER FLAP: Gates cards to Accept/Reject bins
-servo_2_port = 1  # THE DISPENSER KICKER: Maintains dispensing rhythm
+# I2C PCA9685 servo assignments
+servo_1_port = 0  # THE SORTER FLAP: routes target vs. non target cards
+servo_2_port = 1  # THE DISPENSER KICKER: maintains dispensing rhythm
 
-# Absolute angles mapped to physical chassis calibration
+# absolute angles mapped to the given servo's teeth angles
 SERVO_1_CENTER = 99
-SERVO_1_STATE_A = 70   # ACCEPT (-29 deg from center)
-SERVO_1_STATE_B = 126  # REJECT (+27 deg from center)
+SERVO_1_STATE_A = 70   # (-29 deg from center)
+SERVO_1_STATE_B = 126  # (+27 deg from center)
 
 SERVO_2_CENTER = 90
-SERVO_2_RIGHT = 5      # PUSH STROKE
+SERVO_2_RIGHT = 5       
 
-# Init GPIO for DC Motor
+# init GPIO for DC notor
 GPIO.setwarnings(False)
 GPIO.setmode(GPIO.BCM)
 GPIO.setup(MOTOR_IN1, GPIO.OUT)
@@ -57,7 +52,7 @@ GPIO.output(MOTOR_IN1, GPIO.LOW)
 motor_pwm = GPIO.PWM(MOTOR_IN2, 1000)
 motor_pwm.start(0) # Start in OFF state
 
-# Init I2C for Servos
+# init I2C for servos
 i2c = busio.I2C(board.SCL, board.SDA)
 pca = PCA9685(i2c)
 pca.frequency = SERVO_FREQ
@@ -68,26 +63,24 @@ def move_servo_to(port, degrees):
     duty_cycle = int((pulse_length / 4096.0) * 65535)
     pca.channels[port].duty_cycle = duty_cycle
 
-# Safety: Center servos on boot
+# center servos on boot jic it's needed
 move_servo_to(servo_1_port, SERVO_1_CENTER)
 move_servo_to(servo_2_port, SERVO_2_CENTER)
 
-# ==========================================
-# 2. VISION SETTINGS & GLOBALS
-# ==========================================
-system_state = "GESTURE" # FSM State Tracking
-selected_cards = []      # Target Queue, e.g., [('A', 'HEARTS')]
 
-# Camera 0 Data (Gesture Model & Hand Connections)
+system_state = "GESTURE" # FSM state tracking
+selected_cards = []      # Target List, e.g. [('A', 'HEARTS')]
+
+# camera 0 data (gesture model + hand connections)
 HAND_CONNECTIONS = [(0, 1), (1, 2), (2, 3), (3, 4), (0, 5), (5, 6), (6, 7), (7, 8), (0, 9), (9, 10), (10, 11), (11, 12), (0, 13), (13, 14), (14, 15), (15, 16), (0, 17), (17, 18), (18, 19), (19, 20), (5, 9), (9, 13), (13, 17)]
 VALUE_MAP = {1: "A", 2: "2", 3: "3", 4: "4", 5: "5", 6: "6", 7: "7", 8: "8", 9: "9", 10: "10", 11: "J", 12: "Q", 13: "K"}
 
-# Camera 1 Data (Template Matching ROI)
+# camera 1 data (template matching ROI)
 cam1_x, cam1_y, cam1_w, cam1_h = 274, 248, 218, 89
 FINAL_SIZE = 160
 PAD = 8
 
-# Load Card Templates into memory (Pre-processed Binary Images)
+# load card templates (to compare to) into memory 
 templates = {}
 print(f"Loading dictionary from {VISION_DIR}...")
 files = glob.glob(os.path.join(VISION_DIR, "*.jpg")) + glob.glob(os.path.join(VISION_DIR, "*.png"))
@@ -101,9 +94,6 @@ for path in files:
 if not templates:
     print("WARNING: No card templates found!")
 
-# ==========================================
-# 3. HELPER FUNCTIONS
-# ==========================================
 class StableLabel:
     """A deque-based buffer to debounce computer vision classifications."""
     def __init__(self, window=10, min_count=8):
@@ -167,43 +157,39 @@ def preprocess_live_roi(cropped_bgr):
     canvas[y_off:y_off+new_h, x_off:x_off+new_w] = resized
     return canvas
 
-# ==========================================
-# 4. MAIN GENERATOR LOOP
-# ==========================================
 def generate_frames():
     global system_state, selected_cards
 
-    # Initialize ML Model
+    # initialize ML model
     options = vision.HandLandmarkerOptions(
         base_options=python.BaseOptions(model_asset_path=MODEL_PATH),
         running_mode=vision.RunningMode.VIDEO, num_hands=2)
     landmarker = vision.HandLandmarker.create_from_options(options)
 
-    # Dynamic Camera Management: Opens only 1 camera at a time to preserve USB bus bandwidth
+    # opens only 1 camera at a time to help USB management :D
     cap = cv2.VideoCapture(0)
     current_cam_index = 0
 
     try:
-        # FSM State Vars: Gesture
+        # FSM state vars: gesture
         value_stab, suit_stab, cmd_stab = StableLabel(), StableLabel(), StableLabel()
         armed, hold_counter, cooldown = False, 0, 0
         cmd_was_active = False 
         last_toggle_time = 0.0
 
-        # FSM State Vars: Sorting
+        # FSM state vars: sorting
         dispenser_state = "WAITING" 
         last_dispense_action = time.time()
         sorter_active = False
         sorter_reset_time = 0.0
 
-        # Debounce tracking dictionary for physical card misfeeds
+        # debounce tracking dictionary for physical card misfeeds
         accepted_history = {} 
 
         timestamp_ms = 0
 
         while True:
-            # --- Dynamic Camera Switching ---
-            # Ensures the active camera matches the current FSM state
+            # ensures the correct camera is on at a given time
             if system_state == "GESTURE" and current_cam_index != 0:
                 cap.release()
                 cap = cv2.VideoCapture(0)
@@ -213,9 +199,6 @@ def generate_frames():
                 cap = cv2.VideoCapture(1)
                 current_cam_index = 1
 
-            # --------------------------------------------------
-            # PHASE 1: GESTURE SELECTION
-            # --------------------------------------------------
             if system_state == "GESTURE":
                 success, frame = cap.read()
                 if not success: continue
@@ -229,7 +212,7 @@ def generate_frames():
                 if result.hand_landmarks:
                     for hand_landmarks, handedness in zip(result.hand_landmarks, result.handedness):
                         draw_hand(frame, hand_landmarks)
-                        # Swap handedness since camera is mirrored
+                        # swap handedness since camera is mirrored
                         lr = "Left" if handedness[0].category_name == "Right" else "Right"
                         if lr == "Left":
                             val_raw = classify_value(hand_landmarks)
@@ -239,7 +222,7 @@ def generate_frames():
 
                 v_stab, s_stab, c_stab = value_stab.update(val_raw), suit_stab.update(suit_raw), cmd_stab.update(cmd_raw)
 
-                # Edge Trigger Toggle Logic (with 1.5s rapid re-arm prevention)
+                # edge trigger toggle logic (with 1.5s rearm prevention)
                 is_toggle_cmd = (c_stab == "TOGGLE_ARM")
                 if is_toggle_cmd and not cmd_was_active and (time.time() - last_toggle_time > 1.5):
                     was_armed = armed
@@ -247,7 +230,7 @@ def generate_frames():
                     last_toggle_time = time.time()
                     hold_counter = 0
 
-                    # STATE TRANSITION: Pivot to SORTING Mode
+                    # change to SORTING Mode
                     if was_armed and not armed and len(selected_cards) > 0:
                         print("Transitioning to SORTING mode...")
                         system_state = "SORTING"
@@ -273,7 +256,6 @@ def generate_frames():
                     cooldown = 15
                     hold_counter = 0
 
-                # Render Data overlay
                 cv2.putText(frame, f"VALUE: {v_stab} | SUIT: {s_stab}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255,255,255), 2)
                 cv2.putText(frame, f"ARMED: {armed}", (10, 65), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,255,0) if armed else (0,0,255), 2)
                 cv2.putText(frame, f"Cards: {selected_cards[-3:]}", (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
@@ -281,16 +263,13 @@ def generate_frames():
                 ret, buffer = cv2.imencode('.jpg', frame)
                 yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
 
-            # --------------------------------------------------
-            # PHASE 2: DISPENSING & SORTING
-            # --------------------------------------------------
             elif system_state == "SORTING":
                 success, frame = cap.read()
                 if not success: continue
 
                 current_time = time.time()
 
-                # 0. Lifecycle Termination Condition
+                # ifecycle Termination Condition
                 if len(selected_cards) == 0 and not sorter_active:
                     print("All targets found! Returning to GESTURE interface.")
                     system_state = "GESTURE"
@@ -300,8 +279,7 @@ def generate_frames():
                     move_servo_to(servo_2_port, SERVO_2_CENTER)  
                     continue
 
-                # 1. Non-Blocking Dispenser Rhythm (Servo 2)
-                # Utilizes time offsets rather than time.sleep() to preserve Flask streaming
+                # nonblocking dispenser rhythm (servo 2)
                 if dispenser_state == "PUSHING" and (current_time - last_dispense_action > 0.5):
                     move_servo_to(servo_2_port, SERVO_2_CENTER)
                     dispenser_state = "WAITING"
@@ -311,25 +289,23 @@ def generate_frames():
                     dispenser_state = "PUSHING"
                     last_dispense_action = current_time
 
-                # 2. Asynchronous Sorter Flap Reset (Servo 1)
-                # Resets gate to REJECT after 1.5s to ensure physical drop clearance
+                # 2. asynch sorter flap reset (servo 1) after 1.5 sec
                 if sorter_active and (current_time - sorter_reset_time > 1.5):
                     move_servo_to(servo_1_port, SERVO_1_STATE_B)
                     sorter_active = False
 
-                # 3. Memory Cleanup (Prune stale history entries to prevent dictionary bloat)
                 stale_keys = [k for k, t in accepted_history.items() if current_time - t > 3.0]
                 for k in stale_keys:
                     del accepted_history[k]
 
-                # 4. Computer Vision Target Matching
+                # 4. CV target matching
                 roi = frame[cam1_y:cam1_y+cam1_h, cam1_x:cam1_x+cam1_w]
                 live_canvas = preprocess_live_roi(roi)
                 cv2.rectangle(frame, (cam1_x, cam1_y), (cam1_x+cam1_w, cam1_y+cam1_h), (0, 255, 0), 2)
 
                 if live_canvas is not None:
                     best_score, best_match = -1.0, "Scanning..."
-                    # Execute CCOEFF_NORMED across local dictionary
+                    # does CCOEFF_NORMED across local dictionary
                     for name, template_img in templates.items():
                         score = cv2.matchTemplate(live_canvas, template_img, cv2.TM_CCOEFF_NORMED)[0][0]
                         if score > best_score:
@@ -342,26 +318,22 @@ def generate_frames():
                                 match_tuple = (v, s)
                                 break
                         
-                        # --- PHYSICAL DEBOUNCE & MISFEED LOGIC ---
                         if match_tuple:
-                            # True Positive: Remove target, log time, route to ACCEPT bin
                             selected_cards.remove(match_tuple)
                             accepted_history[best_match] = current_time
                             move_servo_to(servo_1_port, SERVO_1_STATE_A) 
                             sorter_active = True
                             sorter_reset_time = current_time 
                         elif best_match in accepted_history and (current_time - accepted_history[best_match] < 2.0):
-                            # Misfeed Detected: Target card bounced/remained in view. 
-                            # Extend the clearance timer instead of reverting to Reject.
+                            # misfeed!
                             move_servo_to(servo_1_port, SERVO_1_STATE_A)
                             sorter_active = True
                             sorter_reset_time = current_time
                             accepted_history[best_match] = current_time 
                         else:
-                            # Non-target identified
+                            # non target
                             move_servo_to(servo_1_port, SERVO_1_STATE_B) 
 
-                        # Render scanning telemetry
                         cv2.rectangle(frame, (cam1_x, cam1_y-30), (cam1_x+cam1_w, cam1_y), (0, 0, 0), -1)
                         cv2.putText(frame, f"{best_match} ({int(best_score*100)}%)", (cam1_x+5, cam1_y-8), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
@@ -369,14 +341,10 @@ def generate_frames():
                 yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
 
     finally:
-        # Guarantee hardware release upon web stream termination
         print("Releasing camera resources...")
         if cap is not None:
             cap.release()
 
-# ==========================================
-# 5. FLASK ROUTES & CLEANUP
-# ==========================================
 @app.route('/')
 def index():
     return '''<html><body style="background-color: #121212; color: white; text-align: center; font-family: sans-serif;">
