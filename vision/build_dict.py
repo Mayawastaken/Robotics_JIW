@@ -18,19 +18,15 @@ def preprocess_template(path):
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    # Mild blur
     blur = cv2.GaussianBlur(gray, (3, 3), 0)
 
-    # Otsu threshold
     _, thresh = cv2.threshold(
         blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
     )
 
-    # Mild cleanup only
     kernel = np.ones((2, 2), np.uint8)
     thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
 
-    # Find all white pixels
     ys, xs = np.where(thresh > 0)
     if len(xs) == 0 or len(ys) == 0:
         print(f"No ink found in {path}")
@@ -39,7 +35,7 @@ def preprocess_template(path):
     x1, x2 = xs.min(), xs.max()
     y1, y2 = ys.min(), ys.max()
 
-    # Crop with small padding
+    # crop + pad
     x1 = max(0, x1 - PAD)
     y1 = max(0, y1 - PAD)
     x2 = min(thresh.shape[1] - 1, x2 + PAD)
@@ -47,7 +43,6 @@ def preprocess_template(path):
 
     cropped = thresh[y1:y2+1, x1:x2+1]
 
-    # Preserve aspect ratio on fixed canvas
     h, w = cropped.shape
     scale = min((FINAL_SIZE - 2*PAD) / w, (FINAL_SIZE - 2*PAD) / h)
 
