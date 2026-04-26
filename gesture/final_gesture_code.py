@@ -8,7 +8,7 @@ from collections import deque
 
 app = Flask(__name__)
 
-# --- GLOBALS & ROI ---
+# ROI
 current_frame = None
 x = 280
 y = 239
@@ -105,7 +105,6 @@ def draw_hand(frame, hand_landmarks, line_color=(0, 255, 0), dot_color=(0, 0, 25
         cv2.circle(frame, (x, y), 3, dot_color, -1)
 
 
-# --- FLASK STREAMING LOGIC ---
 def generate_frames():
     global current_frame
     
@@ -134,10 +133,9 @@ def generate_frames():
     hold_counter = 0
     cooldown = 0
     
-    HOLD_FRAMES = 10         # Lowered slightly since Pi FPS is lower
-    COOLDOWN_FRAMES = 15     # Lowered slightly since Pi FPS is lower
+    HOLD_FRAMES = 10      
+    COOLDOWN_FRAMES = 15  
     
-    # --- NEW REAL-TIME TOGGLE VARIABLES ---
     last_toggle_time = 0.0
     TOGGLE_COOLDOWN_SECONDS = 5.0 
 
@@ -183,11 +181,11 @@ def generate_frames():
 
         current_time = time.time()
 
-        # Use actual clock time instead of frame counting!
+        # clock timing i.e. not frame counting
         if cmd_stable == "TOGGLE_ARM" and (current_time - last_toggle_time) > TOGGLE_COOLDOWN_SECONDS:
             armed = not armed
             last_toggle_time = current_time
-            hold_counter = 0  # Reset card reading so it doesn't instantly snap a card
+            hold_counter = 0  
         
         if cooldown > 0: 
             cooldown -= 1
@@ -204,13 +202,11 @@ def generate_frames():
             cooldown = COOLDOWN_FRAMES
             hold_counter = 0
 
-        # Draw UI on frame
         cv2.putText(frame, f"VALUE (Left):  {value_stable}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255,255,255), 2)
         cv2.putText(frame, f"SUIT  (Right): {suit_stable}", (10, 65), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,255,255), 2)
         cv2.putText(frame, f"ARMED: {armed}", (10, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,255,0) if armed else (0,0,255), 2)
         cv2.putText(frame, f"Selected: {selected[-3:]}", (10, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
 
-        # Encode and stream
         ret, buffer = cv2.imencode('.jpg', frame)
         final_frame = buffer.tobytes()
         yield (b'--frame\r\n'
@@ -237,10 +233,10 @@ def video_feed():
 def snap(card_name):
     global current_frame
     if current_frame is not None:
-        # Crop the CLEAN frame (no green lines!)
+        # crop the frame
         cropped_roi = current_frame[y:y+h, x:x+w]
 
-        # Save it
+        # save it
         filename = f"templates/template_{card_name}.jpg"
         cv2.imwrite(filename, cropped_roi)
 
